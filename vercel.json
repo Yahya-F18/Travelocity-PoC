@@ -1,8 +1,8 @@
 {
   "rewrites": [
     {
-      "source": "/checkout/:path*",
-      "destination": "/index.html"
+      "source": "/checkout",
+      "destination": "/api/checkout"
     }
   ]
 }

@@ -1,7 +1,7 @@
 {
   "rewrites": [
     {
-      "source": "/checkout/(.*)|/checkout",
+      "source": "/checkout/:path*",
       "destination": "/index.html"
     }
   ]

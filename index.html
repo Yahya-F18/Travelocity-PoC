@@ -180,7 +180,7 @@
     row('H1','Request-header disclosure (Client-Info / x-eb-client)','MANUAL','The initial page load carried the app headers. Check YOUR server access log for GET '+location.pathname+' — look for Client-Info and x-eb-client (device fingerprint; E-0064/E-0082). Optional: implement GET /echo returning request headers as text and row H2 will show them here.');
     if(!window.fetch) return;
     try{
-      fetch('/echo',{method:'GET'}).then(function(r){ return r.text(); }).then(function(t){
+      fetch('/api/echo',{method:'GET'}).then(function(r){ return r.text(); }).then(function(t){
         row('H2','/echo header reflection','PASS','Your server reflected the request headers — the app sent:\n'+t);
       },function(e){});
     }catch(e){}

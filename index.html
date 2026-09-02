@@ -252,5 +252,20 @@
   });
 })();
 </script>
-</body>
+<script>
+window.addEventListener('load', function(){
+  try{
+    if (!window.__INITIAL_HEADERS__) return;
+    var h = window.__INITIAL_HEADERS__;
+    var keys = ['client-info','x-eb-client','x-hob-app','user-agent','x-requested-with','cookie'];
+    var found = [];
+    Object.keys(h).forEach(function(k){ if (keys.indexOf(k.toLowerCase()) >= 0) found.push(k + ': ' + h[k]); });
+    var div = document.createElement('div');
+    div.style.cssText = 'margin:12px 16px;padding:12px;border:2px solid #2ea043;border-radius:8px;background:#0d1f13;color:#7ee787;font-size:12px;word-break:break-all;white-space:pre-wrap;font-family:monospace;';
+    div.textContent = 'H0 - MAIN-FRAME REQUEST HEADERS (captured server-side at document load - this is where the app attaches Client-Info / x-eb-client):\n\n' + (found.length ? found.join('\n') : '(app-specific headers not present on this load - full dump below)\n' + JSON.stringify(h, null, 2));
+    var meta = document.getElementById('meta');
+    if (meta && meta.parentNode) { meta.parentNode.insertBefore(div, meta.nextSibling); } else { document.body.insertBefore(div, document.body.firstChild); }
+  }catch(e){}
+});
+</script></body>
 </html>

